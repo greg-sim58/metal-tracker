@@ -78,7 +78,7 @@ export default function SignalIndicator({ signals }: SignalIndicatorProps) {
                   ))}
                 </div>
                 <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
-                  {new Date(signal.timestamp).toLocaleDateString()}
+                  {new Date(signal.timestamp).toLocaleDateString("en-US")}
                 </p>
               </div>
             </div>
