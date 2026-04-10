@@ -1,18 +1,57 @@
 // Commitment of Traders (COT) data fetching and processing
-// Source: CFTC Public Reporting Environment (Socrata API)
+// Source: CFTC Disaggregated Futures-Only Report (f_disagg.txt)
+// Column spec: https://www.cftc.gov/MarketReports/CommitmentsofTraders/HistoricalViewable/CFTC_023168
 
-const CFTC_API_BASE = "https://publicreporting.cftc.gov/resource/72hh-3qpy.json";
+const CFTC_DISAGG_URL = "https://www.cftc.gov/dea/newcot/f_disagg.txt";
 
-interface CftcCotResponse {
-  report_date_as_yyyy_mm_dd: string;
-  open_interest_all: string;
-  prod_merc_positions_long: string;
-  prod_merc_positions_short: string;
-  m_money_positions_long_all: string;
-  m_money_positions_short_all: string;
-  swap_positions_long_all: string;
-  swap__positions_short_all: string;
-}
+/**
+ * Market identification: the quoted market name field must contain this
+ * substring to match gold futures on COMEX.
+ */
+const GOLD_MARKET_PATTERN = "GOLD - COMMODITY EXCHANGE";
+
+/**
+ * 0-based column indices for the disaggregated futures-only report.
+ *
+ * Full column listing (All section, indices 0-22):
+ *   0  Market_and_Exchange_Names (quoted)
+ *   1  As_of_Date_In_Form_YYMMDD
+ *   2  Report_Date (YYYY-MM-DD)
+ *   3  CFTC_Contract_Market_Code
+ *   4  CFTC_Market_Code (exchange abbreviation)
+ *   5  CFTC_Region_Code
+ *   6  CFTC_Commodity_Code
+ *   7  Open_Interest_All
+ *   8  Prod_Merc_Positions_Long_All
+ *   9  Prod_Merc_Positions_Short_All
+ *  10  Swap_Positions_Long_All
+ *  11  Swap_Positions_Short_All
+ *  12  Swap_Positions_Spread_All
+ *  13  M_Money_Positions_Long_All
+ *  14  M_Money_Positions_Short_All
+ *  15  M_Money_Positions_Spread_All
+ *  16  Other_Rept_Positions_Long_All
+ *  17  Other_Rept_Positions_Short_All
+ *  18  Other_Rept_Positions_Spread_All
+ *  19  Tot_Rept_Positions_Long_All
+ *  20  Tot_Rept_Positions_Short_All
+ *  21  NonRept_Positions_Long_All
+ *  22  NonRept_Positions_Short_All
+ */
+const COL = {
+  MARKET_NAME: 0,
+  REPORT_DATE: 2,
+  OPEN_INTEREST: 7,
+  PROD_MERC_LONG: 8,
+  PROD_MERC_SHORT: 9,
+  MANAGED_MONEY_LONG: 13,
+  MANAGED_MONEY_SHORT: 14,
+  NONREPORTABLE_LONG: 21,
+  NONREPORTABLE_SHORT: 22,
+} as const;
+
+/** Minimum number of fields required for a valid disaggregated row. */
+const MIN_FIELDS = 23;
 
 export interface CotPositionGroup {
   long: number;
@@ -21,85 +60,241 @@ export interface CotPositionGroup {
 }
 
 export interface CotReport {
+  market: string;
   date: string;
   openInterest: number;
   commercials: CotPositionGroup;
-  managedMoney: CotPositionGroup;
-  swapDealers: CotPositionGroup;
-  longPositions: number;
-  shortPositions: number;
-  netPosition: number;
+  largeSpeculators: CotPositionGroup;
+  smallTraders: CotPositionGroup;
 }
 
-function parsePosition(value: string | undefined): number {
-  if (!value) return 0;
-  const parsed = parseInt(value, 10);
-  return Number.isNaN(parsed) ? 0 : parsed;
+/**
+ * Compute net position from long and short contract counts.
+ */
+export function getNetPosition(long: number, short: number): number {
+  return long - short;
 }
 
-function buildPositionGroup(long: string | undefined, short: string | undefined): CotPositionGroup {
-  const longVal = parsePosition(long);
-  const shortVal = parsePosition(short);
+/**
+ * Parse a CSV row that may contain quoted fields (fields with commas inside
+ * double quotes). Implements RFC 4180-compliant parsing.
+ *
+ * Example input:
+ *   `"GOLD - COMMODITY EXCHANGE INC.",260331,2026-03-31,002691,CME ,00,002 ,  488618,...`
+ *
+ * Returns an array of trimmed field values.
+ */
+function parseCsvRow(line: string): string[] {
+  const fields: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  let i = 0;
+
+  while (i < line.length) {
+    const char = line[i];
+
+    if (inQuotes) {
+      if (char === '"') {
+        // Check for escaped quote ("")
+        if (i + 1 < line.length && line[i + 1] === '"') {
+          current += '"';
+          i += 2;
+          continue;
+        }
+        // End of quoted field
+        inQuotes = false;
+        i++;
+        continue;
+      }
+      current += char;
+      i++;
+    } else {
+      if (char === '"') {
+        inQuotes = true;
+        i++;
+        continue;
+      }
+      if (char === ",") {
+        fields.push(current.trim());
+        current = "";
+        i++;
+        continue;
+      }
+      current += char;
+      i++;
+    }
+  }
+
+  // Push the last field
+  fields.push(current.trim());
+
+  return fields;
+}
+
+/**
+ * Parse a numeric field from the CSV. Handles whitespace-padded integers and
+ * the CFTC convention of using "." for suppressed/missing data.
+ *
+ * Returns `null` if the value is missing or unparseable.
+ */
+function parseNumericField(value: string | undefined): number | null {
+  if (value === undefined || value === "" || value === ".") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed === "" || trimmed === ".") {
+    return null;
+  }
+
+  const parsed = parseInt(trimmed, 10);
+  if (Number.isNaN(parsed)) {
+    return null;
+  }
+
+  return parsed;
+}
+
+/**
+ * Parse a numeric field, returning 0 for missing/suppressed data.
+ * Use this when a fallback of 0 is acceptable (position fields).
+ */
+function parseNumericFieldOrZero(value: string | undefined): number {
+  return parseNumericField(value) ?? 0;
+}
+
+/**
+ * Build a position group from long and short field values.
+ */
+function buildPositionGroup(
+  longValue: string | undefined,
+  shortValue: string | undefined,
+): CotPositionGroup {
+  const long = parseNumericFieldOrZero(longValue);
+  const short = parseNumericFieldOrZero(shortValue);
   return {
-    long: longVal,
-    short: shortVal,
-    net: longVal - shortVal,
+    long,
+    short,
+    net: getNetPosition(long, short),
   };
 }
 
-export async function fetchCotReport(): Promise<CotReport | null> {
-  const params = new URLSearchParams({
-    contract_market_name: "GOLD",
-    "$limit": "1",
-    "$order": "report_date_as_yyyy_mm_dd DESC",
-  });
+/**
+ * Validate that a parsed CotReport contains plausible data.
+ * Returns an error message if validation fails, or null if valid.
+ */
+function validateReport(report: CotReport): string | null {
+  if (report.openInterest <= 0) {
+    return `Invalid open interest: ${report.openInterest}`;
+  }
 
-  const res = await fetch(`${CFTC_API_BASE}?${params.toString()}`, {
+  const totalLong =
+    report.commercials.long +
+    report.largeSpeculators.long +
+    report.smallTraders.long;
+
+  if (totalLong <= 0) {
+    return `Total long positions is zero or negative: ${totalLong}`;
+  }
+
+  if (!report.date || report.date === "Unknown") {
+    return "Missing report date";
+  }
+
+  return null;
+}
+
+/**
+ * Find the GOLD futures row in the parsed CSV rows.
+ * Matches rows where the market name contains "GOLD - COMMODITY EXCHANGE".
+ */
+function findGoldRow(rows: string[][]): string[] | null {
+  for (const fields of rows) {
+    if (fields.length < MIN_FIELDS) continue;
+
+    const marketName = fields[COL.MARKET_NAME].toUpperCase();
+    if (marketName.includes(GOLD_MARKET_PATTERN)) {
+      return fields;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Fetch and parse the latest CFTC Disaggregated Futures-Only report to
+ * extract gold futures COT data.
+ *
+ * Fetches the full f_disagg.txt file, parses the CSV, locates the GOLD
+ * COMEX row, and returns a structured CotReport.
+ *
+ * Returns `null` if the fetch fails, the GOLD row is not found, or
+ * validation fails.
+ */
+export async function fetchCotReport(): Promise<CotReport | null> {
+  const res = await fetch(CFTC_DISAGG_URL, {
     next: { revalidate: 1200 },
   });
 
   if (!res.ok) {
-    console.error(`CFTC API error: ${res.status} ${res.statusText}`);
+    console.error(`CFTC report fetch failed: ${res.status} ${res.statusText}`);
     return null;
   }
 
-  const data: CftcCotResponse[] = await res.json();
+  const text = await res.text();
 
-  if (!data || data.length === 0) {
-    console.error("CFTC API returned no COT data for GOLD");
+  if (!text || text.trim().length === 0) {
+    console.error("CFTC report returned empty response");
     return null;
   }
 
-  const record = data[0];
+  const lines = text.split("\n").filter((line) => line.trim().length > 0);
+
+  if (lines.length === 0) {
+    console.error("CFTC report has no data rows");
+    return null;
+  }
+
+  const rows = lines.map(parseCsvRow);
+  const goldFields = findGoldRow(rows);
+
+  if (!goldFields) {
+    console.error("GOLD futures row not found in CFTC disaggregated report");
+    return null;
+  }
+
+  const reportDate = goldFields[COL.REPORT_DATE] || "Unknown";
+  const openInterest = parseNumericFieldOrZero(goldFields[COL.OPEN_INTEREST]);
 
   const commercials = buildPositionGroup(
-    record.prod_merc_positions_long,
-    record.prod_merc_positions_short,
-  );
-  const managedMoney = buildPositionGroup(
-    record.m_money_positions_long_all,
-    record.m_money_positions_short_all,
-  );
-  const swapDealers = buildPositionGroup(
-    record.swap_positions_long_all,
-    record.swap__positions_short_all,
+    goldFields[COL.PROD_MERC_LONG],
+    goldFields[COL.PROD_MERC_SHORT],
   );
 
-  const totalLong = commercials.long + managedMoney.long + swapDealers.long;
-  const totalShort = commercials.short + managedMoney.short + swapDealers.short;
+  const largeSpeculators = buildPositionGroup(
+    goldFields[COL.MANAGED_MONEY_LONG],
+    goldFields[COL.MANAGED_MONEY_SHORT],
+  );
 
-  const reportDate = record.report_date_as_yyyy_mm_dd
-    ? record.report_date_as_yyyy_mm_dd.split("T")[0]
-    : "Unknown";
+  const smallTraders = buildPositionGroup(
+    goldFields[COL.NONREPORTABLE_LONG],
+    goldFields[COL.NONREPORTABLE_SHORT],
+  );
 
-  return {
+  const report: CotReport = {
+    market: "Gold Futures",
     date: reportDate,
-    openInterest: parsePosition(record.open_interest_all),
+    openInterest,
     commercials,
-    managedMoney,
-    swapDealers,
-    longPositions: totalLong,
-    shortPositions: totalShort,
-    netPosition: totalLong - totalShort,
+    largeSpeculators,
+    smallTraders,
   };
+
+  const validationError = validateReport(report);
+  if (validationError) {
+    console.error(`COT report validation failed: ${validationError}`);
+    return null;
+  }
+
+  return report;
 }

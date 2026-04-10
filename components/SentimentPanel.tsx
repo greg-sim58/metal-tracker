@@ -53,12 +53,13 @@ export default function SentimentPanel({ data }: SentimentPanelProps) {
     );
   }
 
+  const overallNet = data.largeSpeculators.net + data.commercials.net + data.smallTraders.net;
   const sentiment =
-    data.netPosition > 0 ? "Bullish" : data.netPosition < 0 ? "Bearish" : "Neutral";
+    overallNet > 0 ? "Bullish" : overallNet < 0 ? "Bearish" : "Neutral";
   const sentimentColor =
-    data.netPosition > 0
+    overallNet > 0
       ? "text-green-600 dark:text-green-400"
-      : data.netPosition < 0
+      : overallNet < 0
         ? "text-red-600 dark:text-red-400"
         : "text-zinc-600 dark:text-zinc-400";
 
@@ -83,29 +84,29 @@ export default function SentimentPanel({ data }: SentimentPanelProps) {
         <div className="text-right">
           <span className="text-xs text-zinc-500 dark:text-zinc-400">Net Position</span>
           <p className={`text-sm font-medium ${sentimentColor}`}>
-            {data.netPosition > 0 ? "+" : ""}{data.netPosition.toLocaleString("en-US")}
+            {overallNet > 0 ? "+" : ""}{overallNet.toLocaleString("en-US")}
           </p>
         </div>
       </div>
 
       <div className="mt-4 space-y-3">
         <PositionRow
-          label="Managed Money"
-          long={data.managedMoney.long}
-          short={data.managedMoney.short}
-          net={data.managedMoney.net}
+          label="Large Speculators (Managed Money)"
+          long={data.largeSpeculators.long}
+          short={data.largeSpeculators.short}
+          net={data.largeSpeculators.net}
         />
         <PositionRow
-          label="Commercials"
+          label="Commercials (Producers/Merchants)"
           long={data.commercials.long}
           short={data.commercials.short}
           net={data.commercials.net}
         />
         <PositionRow
-          label="Swap Dealers"
-          long={data.swapDealers.long}
-          short={data.swapDealers.short}
-          net={data.swapDealers.net}
+          label="Small Traders (Nonreportable)"
+          long={data.smallTraders.long}
+          short={data.smallTraders.short}
+          net={data.smallTraders.net}
         />
       </div>
 

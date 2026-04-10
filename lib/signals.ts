@@ -12,8 +12,15 @@ export interface Signal {
   timestamp: string;
 }
 
+/**
+ * Rule 1 — Managed Money (Large Speculator) Sentiment
+ *
+ * Managed money net long > 80k contracts → bullish
+ * Managed money net long < 20k contracts → bearish
+ * In between → neutral/hold
+ */
 function managedMoneySentiment(cot: CotReport, timestamp: string): Signal {
-  const net = cot.managedMoney.net;
+  const net = cot.largeSpeculators.net;
 
   if (net > 80000) {
     const strength = net > 120000 ? 5 : 4;
@@ -44,6 +51,12 @@ function managedMoneySentiment(cot: CotReport, timestamp: string): Signal {
   };
 }
 
+/**
+ * Rule 2 — Commercial Hedger Contrarian Signal
+ *
+ * Commercials heavily net short (< -30k) → producers hedging aggressively → bullish contrarian
+ * Commercials near flat or net long (> -5k) → unusual, bearish contrarian
+ */
 function commercialContrarian(cot: CotReport, timestamp: string): Signal {
   const net = cot.commercials.net;
 
@@ -75,9 +88,16 @@ function commercialContrarian(cot: CotReport, timestamp: string): Signal {
   };
 }
 
+/**
+ * Rule 3 — Open Interest Conviction Filter
+ *
+ * High OI (> 300k) with bullish managed money positioning → strong conviction buy
+ * High OI with bearish managed money positioning → strong conviction sell
+ * Low OI (< 200k) → thin market, low conviction
+ */
 function openInterestConviction(cot: CotReport, timestamp: string): Signal {
   const oi = cot.openInterest;
-  const managedNet = cot.managedMoney.net;
+  const managedNet = cot.largeSpeculators.net;
 
   if (oi > 300000 && managedNet > 50000) {
     return {
