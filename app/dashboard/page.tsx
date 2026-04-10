@@ -1,3 +1,4 @@
+import DashboardRefresh from "@/components/DashboardRefresh";
 import PriceChart from "@/components/PriceChart";
 import SentimentPanel from "@/components/SentimentPanel";
 import SignalIndicator from "@/components/SignalIndicator";
@@ -14,6 +15,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-black">
+      <DashboardRefresh />
       <header className="border-b border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900">
         <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
           Gold Dashboard

@@ -34,7 +34,7 @@ export default function PriceChart({ data }: PriceChartProps) {
         </span>
       </div>
       <p className="mt-2 text-xs text-zinc-400 dark:text-zinc-500">
-        Last updated: {new Date(data.timestamp).toLocaleString()}
+        Last updated: {new Date(data.timestamp).toLocaleString("en-US")}
       </p>
     </div>
   );

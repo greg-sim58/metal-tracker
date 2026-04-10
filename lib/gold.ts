@@ -20,7 +20,9 @@ interface GoldApiResponse {
 }
 
 export async function fetchGoldPrice(): Promise<GoldPrice | null> {
-  const res = await fetch(`${GOLD_API_BASE}/price/XAU`);
+  const res = await fetch(`${GOLD_API_BASE}/price/XAU`, {
+    next: { revalidate: 1200 },
+  });
 
   if (!res.ok) {
     console.error(`Gold API error: ${res.status} ${res.statusText}`);

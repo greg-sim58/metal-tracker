@@ -54,7 +54,9 @@ export async function fetchCotReport(): Promise<CotReport | null> {
     "$order": "report_date_as_yyyy_mm_dd DESC",
   });
 
-  const res = await fetch(`${CFTC_API_BASE}?${params.toString()}`);
+  const res = await fetch(`${CFTC_API_BASE}?${params.toString()}`, {
+    next: { revalidate: 1200 },
+  });
 
   if (!res.ok) {
     console.error(`CFTC API error: ${res.status} ${res.statusText}`);

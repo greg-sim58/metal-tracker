@@ -26,13 +26,13 @@ function PositionRow({ label, long, short, net }: {
       </span>
       <div className="flex justify-between text-sm">
         <span className="text-zinc-600 dark:text-zinc-300">
-          Long: {long.toLocaleString()}
+          Long: {long.toLocaleString("en-US")}
         </span>
         <span className="text-zinc-600 dark:text-zinc-300">
-          Short: {short.toLocaleString()}
+          Short: {short.toLocaleString("en-US")}
         </span>
         <span className={`font-medium ${netColor}`}>
-          Net: {net > 0 ? "+" : ""}{net.toLocaleString()}
+          Net: {net > 0 ? "+" : ""}{net.toLocaleString("en-US")}
         </span>
       </div>
     </div>
@@ -77,13 +77,13 @@ export default function SentimentPanel({ data }: SentimentPanelProps) {
         <div>
           <span className="text-xs text-zinc-500 dark:text-zinc-400">Open Interest</span>
           <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-            {data.openInterest.toLocaleString()}
+            {data.openInterest.toLocaleString("en-US")}
           </p>
         </div>
         <div className="text-right">
           <span className="text-xs text-zinc-500 dark:text-zinc-400">Net Position</span>
           <p className={`text-sm font-medium ${sentimentColor}`}>
-            {data.netPosition > 0 ? "+" : ""}{data.netPosition.toLocaleString()}
+            {data.netPosition > 0 ? "+" : ""}{data.netPosition.toLocaleString("en-US")}
           </p>
         </div>
       </div>
