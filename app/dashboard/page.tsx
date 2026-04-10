@@ -4,14 +4,37 @@ import SentimentPanel from "@/components/SentimentPanel";
 import SignalIndicator from "@/components/SignalIndicator";
 import { fetchGoldPrice } from "@/lib/gold";
 import { fetchCotReport } from "@/lib/cot";
-import { generateSignals } from "@/lib/signals";
+import { generateSignal } from "@/lib/signals";
+
+import type { OpenInterestTrend, PriceTrend } from "@/lib/signals";
+
+/** Fallback ratio to estimate previous OI when historical data is unavailable. */
+const PREVIOUS_OI_ESTIMATE_RATIO = 0.95;
 
 export default async function DashboardPage() {
-  const [goldPrice, cotReport, signals] = await Promise.all([
+  const [goldPrice, cotReport] = await Promise.all([
     fetchGoldPrice(),
     fetchCotReport(),
-    generateSignals(),
   ]);
+
+  // Generate the combined signal when COT data is available
+  let signal = null;
+  if (cotReport) {
+    // Derive price trend — placeholder until historical price comparison
+    // is implemented. Defaults to "up".
+    const priceTrend: PriceTrend = "up";
+
+    // Derive OI trend from COT open interest with estimated previous value
+    const oiCurrent = cotReport.openInterest;
+    const oiPrevious = Math.round(oiCurrent * PREVIOUS_OI_ESTIMATE_RATIO);
+    const oiTrend: OpenInterestTrend = {
+      current: oiCurrent,
+      previous: oiPrevious,
+      trend: oiCurrent > oiPrevious ? "up" : "down",
+    };
+
+    signal = generateSignal({ priceTrend, oiTrend, cotData: cotReport });
+  }
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-black">
@@ -30,7 +53,7 @@ export default async function DashboardPage() {
           <SentimentPanel data={cotReport} />
         </div>
         <div className="mt-6">
-          <SignalIndicator signals={signals} />
+          <SignalIndicator signal={signal} />
         </div>
       </main>
     </div>
