@@ -4,10 +4,17 @@ import SentimentPanel from "@/components/SentimentPanel";
 import SignalIndicator from "@/components/SignalIndicator";
 import { fetchGoldPrice } from "@/lib/gold";
 import { fetchCotReport } from "@/lib/cot";
-import { fetchCotHistory, computePercentileMetrics } from "@/lib/cotHistory";
+import {
+  fetchCotHistory,
+  computePercentileMetrics,
+  getWeeklyDeltas,
+  calculateAcceleration,
+} from "@/lib/cotHistory";
 import { generateSignal } from "@/lib/signals";
+import { classifyExecution } from "@/lib/execution";
 
 import type { OpenInterestTrend, PriceTrend } from "@/lib/signals";
+import type { ExecutionResult } from "@/lib/execution";
 
 /** Fallback ratio to estimate previous OI when historical data is unavailable. */
 const PREVIOUS_OI_ESTIMATE_RATIO = 0.95;
@@ -21,6 +28,7 @@ export default async function DashboardPage() {
 
   // Generate the combined signal when COT data is available
   let signal = null;
+  let executionResult: ExecutionResult | null = null;
   if (cotReport) {
     // Compute percentile metrics against historical distribution
     const percentiles = computePercentileMetrics(
@@ -50,12 +58,23 @@ export default async function DashboardPage() {
       trend: oiCurrent > oiPrevious ? "up" : "down",
     };
 
-    signal = generateSignal({
+    // Compute positioning delta (weekly change) and acceleration (rate of change)
+    const deltas = getWeeklyDeltas(cotHistory);
+    const acceleration = calculateAcceleration(cotHistory);
+
+    const signalInput = {
       priceTrend,
       oiTrend,
       cotData: cotReport,
       percentiles,
-    });
+      deltas,
+      acceleration,
+    };
+
+    signal = generateSignal(signalInput);
+
+    // Classify execution stage and generate alerts
+    executionResult = classifyExecution(signal, signalInput);
   }
 
   return (
@@ -75,7 +94,11 @@ export default async function DashboardPage() {
           <SentimentPanel data={cotReport} />
         </div>
         <div className="mt-6">
-          <SignalIndicator signal={signal} />
+          <SignalIndicator
+            signal={signal}
+            execution={executionResult?.execution ?? null}
+            alerts={executionResult?.alerts ?? []}
+          />
         </div>
       </main>
     </div>

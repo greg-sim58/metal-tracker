@@ -27,6 +27,25 @@ export interface PercentileMetrics {
   newestDate: string;
 }
 
+/**
+ * Week-over-week change in net positioning.
+ * Positive = increased long exposure; negative = reduced / gone short.
+ */
+export interface PositioningDeltas {
+  managedMoney: number;
+  commercials: number;
+}
+
+/**
+ * Rate-of-change of the weekly delta (second derivative).
+ * Positive acceleration = buying pressure increasing.
+ * Negative acceleration = selling pressure increasing.
+ */
+export interface PositioningAcceleration {
+  managedMoney: number;
+  commercials: number;
+}
+
 // ---------------------------------------------------------------------------
 // Cache
 // ---------------------------------------------------------------------------
@@ -305,5 +324,80 @@ export function computePercentileMetrics(
     historyLength: history.length,
     oldestDate: history[0].date,
     newestDate: history[history.length - 1].date,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Delta and acceleration calculations
+// ---------------------------------------------------------------------------
+
+/** Minimum history points required for delta (2 weeks). */
+const MIN_DELTA_POINTS = 2;
+
+/** Minimum history points required for acceleration (3 weeks). */
+const MIN_ACCELERATION_POINTS = 3;
+
+/**
+ * Calculate the difference between two values.
+ * Used as the building block for weekly deltas.
+ */
+export function calculateDelta(current: number, previous: number): number {
+  return current - previous;
+}
+
+/**
+ * Compute week-over-week change in managed money and commercial net positions.
+ *
+ * Uses the last two data points in the (chronologically sorted) history.
+ * Returns null if fewer than 2 data points are available.
+ */
+export function getWeeklyDeltas(
+  history: CotHistoryPoint[],
+): PositioningDeltas | null {
+  if (history.length < MIN_DELTA_POINTS) {
+    return null;
+  }
+
+  const latest = history[history.length - 1];
+  const prev = history[history.length - 2];
+
+  return {
+    managedMoney: calculateDelta(latest.managedMoneyNet, prev.managedMoneyNet),
+    commercials: calculateDelta(latest.commercialsNet, prev.commercialsNet),
+  };
+}
+
+/**
+ * Compute positioning acceleration (change in the weekly delta).
+ *
+ * acceleration = delta_this_week - delta_last_week
+ *
+ * Interpretation:
+ *   positive → buying pressure increasing (delta growing)
+ *   negative → selling pressure increasing (delta shrinking / reversing)
+ *
+ * Requires at least 3 data points. Returns null otherwise.
+ */
+export function calculateAcceleration(
+  history: CotHistoryPoint[],
+): PositioningAcceleration | null {
+  if (history.length < MIN_ACCELERATION_POINTS) {
+    return null;
+  }
+
+  const len = history.length;
+  const p0 = history[len - 1]; // most recent
+  const p1 = history[len - 2]; // previous week
+  const p2 = history[len - 3]; // two weeks ago
+
+  const mmDelta1 = calculateDelta(p0.managedMoneyNet, p1.managedMoneyNet);
+  const mmDelta2 = calculateDelta(p1.managedMoneyNet, p2.managedMoneyNet);
+
+  const cmDelta1 = calculateDelta(p0.commercialsNet, p1.commercialsNet);
+  const cmDelta2 = calculateDelta(p1.commercialsNet, p2.commercialsNet);
+
+  return {
+    managedMoney: mmDelta1 - mmDelta2,
+    commercials: cmDelta1 - cmDelta2,
   };
 }

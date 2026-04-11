@@ -2,31 +2,41 @@ import { NextResponse } from "next/server";
 
 import { fetchGoldPrice } from "@/lib/gold";
 import { fetchCotReport } from "@/lib/cot";
-import { fetchCotHistory, computePercentileMetrics } from "@/lib/cotHistory";
+import {
+  fetchCotHistory,
+  computePercentileMetrics,
+  getWeeklyDeltas,
+  calculateAcceleration,
+} from "@/lib/cotHistory";
 import { generateSignal } from "@/lib/signals";
+import { classifyExecution } from "@/lib/execution";
+import { dispatchAlertIfNeeded } from "@/lib/alerts";
 
-import type { Signal, OpenInterestTrend, PriceTrend } from "@/lib/signals";
-import type { PercentileMetrics } from "@/lib/cotHistory";
+import type { Signal, SignalMetrics, OpenInterestTrend, PriceTrend } from "@/lib/signals";
+import type { ExecutionSignal, Alert } from "@/lib/execution";
 
 /**
  * GET /api/signals
  *
  * Fetches gold price, COT data, historical COT data, and open interest,
- * then computes a consolidated trading signal using the contrarian model
- * with dynamic percentile-based thresholds.
+ * then computes a consolidated trading signal using the weighted composite
+ * scoring model, plus execution stage classification and alerts.
  *
- * Returns the signal with confidence, reasoning, percentile metrics,
- * and the raw input trends for transparency.
+ * Returns the signal with composite score, per-component breakdown,
+ * confidence, reasoning, metrics, execution stage, alerts, and the raw
+ * input trends for transparency.
  */
 
 interface SignalResponse {
   signal: Signal;
+  execution: ExecutionSignal;
+  alerts: Alert[];
   inputs: {
     priceTrend: PriceTrend;
     oiTrend: OpenInterestTrend;
     managedMoneyNet: number;
     commercialNet: number;
-    percentiles: PercentileMetrics | null;
+    percentileMetrics: SignalMetrics | null;
   };
   timestamp: string;
 }
@@ -84,21 +94,44 @@ export async function GET(): Promise<NextResponse<SignalResponse | { error: stri
       trend: oiCurrent > oiPrevious ? "up" : "down",
     };
 
-    const signal = generateSignal({
+    // Compute positioning delta (weekly change) and acceleration (rate of change)
+    const deltas = getWeeklyDeltas(cotHistory);
+    const acceleration = calculateAcceleration(cotHistory);
+
+    const signalInput = {
       priceTrend,
       oiTrend,
       cotData: cotReport,
       percentiles,
+      deltas,
+      acceleration,
+    };
+
+    const signal = generateSignal(signalInput);
+
+    // Classify execution stage and generate alerts
+    const { execution, alerts } = classifyExecution(signal, signalInput);
+
+    // Dispatch Telegram alert if conditions warrant (fire-and-forget).
+    // Uses void to explicitly mark the floating promise as intentional —
+    // alert delivery should never delay the API response.
+    void dispatchAlertIfNeeded({
+      execution,
+      score: signal.score,
+      managedMoneyDelta: deltas?.managedMoney ?? 0,
+      oiTrend,
     });
 
     const response: SignalResponse = {
       signal,
+      execution,
+      alerts,
       inputs: {
         priceTrend,
         oiTrend,
         managedMoneyNet: cotReport.largeSpeculators.net,
         commercialNet: cotReport.commercials.net,
-        percentiles,
+        percentileMetrics: signal.metrics,
       },
       timestamp: goldPrice?.timestamp ?? new Date().toISOString(),
     };
