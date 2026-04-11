@@ -69,6 +69,60 @@ function ConfidenceBar({ confidence }: { confidence: number }) {
   );
 }
 
+/**
+ * Return the color class for a percentile bar segment based on its value.
+ * Extremes (>90 or <10) are highlighted; moderate values are subdued.
+ */
+function percentileBarColor(percentile: number): string {
+  if (percentile >= 90) return "bg-red-500 dark:bg-red-400";
+  if (percentile >= 75) return "bg-amber-500 dark:bg-amber-400";
+  if (percentile <= 10) return "bg-green-500 dark:bg-green-400";
+  if (percentile <= 25) return "bg-emerald-400 dark:bg-emerald-500";
+  return "bg-blue-400 dark:bg-blue-500";
+}
+
+/**
+ * Return a human-readable label for the percentile zone.
+ */
+function percentileLabel(percentile: number): string {
+  if (percentile >= 90) return "Extreme High";
+  if (percentile >= 75) return "Elevated";
+  if (percentile <= 10) return "Extreme Low";
+  if (percentile <= 25) return "Depressed";
+  return "Normal";
+}
+
+function PercentileBar({
+  label,
+  percentile,
+}: {
+  label: string;
+  percentile: number;
+}) {
+  const barColor = percentileBarColor(percentile);
+  const zone = percentileLabel(percentile);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-zinc-500 dark:text-zinc-400">{label}</span>
+        <span className="font-medium text-zinc-700 dark:text-zinc-200">
+          {percentile}th pctl
+          <span className="ml-1.5 text-zinc-400 dark:text-zinc-500">
+            ({zone})
+          </span>
+        </span>
+      </div>
+      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
+        <div
+          className={`h-full rounded-full transition-all ${barColor}`}
+          style={{ width: `${percentile}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function SignalIndicator({ signal }: SignalIndicatorProps) {
   if (!signal) {
     return (
@@ -84,6 +138,7 @@ export default function SignalIndicator({ signal }: SignalIndicatorProps) {
   }
 
   const style = directionStyles[signal.signal];
+  const metrics = signal.metrics;
 
   return (
     <div className={`rounded-lg border ${style.border} ${style.bg} p-6`}>
@@ -98,6 +153,26 @@ export default function SignalIndicator({ signal }: SignalIndicatorProps) {
       </div>
 
       <ConfidenceBar confidence={signal.confidence} />
+
+      {metrics && (
+        <div className="mt-4 space-y-2">
+          <span className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            Percentile Positioning
+          </span>
+          <PercentileBar
+            label="Managed Money"
+            percentile={metrics.managedMoneyPercentile}
+          />
+          <PercentileBar
+            label="Commercials"
+            percentile={metrics.commercialsPercentile}
+          />
+          <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+            Based on {metrics.historyLength.toLocaleString("en-US")} weeks of data
+            ({metrics.oldestDate} to {metrics.newestDate})
+          </p>
+        </div>
+      )}
 
       <div className="mt-4">
         <span className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">

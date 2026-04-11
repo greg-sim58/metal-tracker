@@ -2,18 +2,21 @@ import { NextResponse } from "next/server";
 
 import { fetchGoldPrice } from "@/lib/gold";
 import { fetchCotReport } from "@/lib/cot";
+import { fetchCotHistory, computePercentileMetrics } from "@/lib/cotHistory";
 import { generateSignal } from "@/lib/signals";
 
 import type { Signal, OpenInterestTrend, PriceTrend } from "@/lib/signals";
+import type { PercentileMetrics } from "@/lib/cotHistory";
 
 /**
  * GET /api/signals
  *
- * Fetches gold price, COT data, and open interest, then computes
- * a consolidated trading signal using the contrarian model.
+ * Fetches gold price, COT data, historical COT data, and open interest,
+ * then computes a consolidated trading signal using the contrarian model
+ * with dynamic percentile-based thresholds.
  *
- * Returns the signal with confidence and reasoning, plus the raw
- * input trends for transparency.
+ * Returns the signal with confidence, reasoning, percentile metrics,
+ * and the raw input trends for transparency.
  */
 
 interface SignalResponse {
@@ -23,6 +26,7 @@ interface SignalResponse {
     oiTrend: OpenInterestTrend;
     managedMoneyNet: number;
     commercialNet: number;
+    percentiles: PercentileMetrics | null;
   };
   timestamp: string;
 }
@@ -32,9 +36,10 @@ const PREVIOUS_OI_ESTIMATE_RATIO = 0.95;
 
 export async function GET(): Promise<NextResponse<SignalResponse | { error: string }>> {
   try {
-    const [goldPrice, cotReport] = await Promise.all([
+    const [goldPrice, cotReport, cotHistory] = await Promise.all([
       fetchGoldPrice(),
       fetchCotReport(),
+      fetchCotHistory(),
     ]);
 
     if (!cotReport) {
@@ -43,6 +48,13 @@ export async function GET(): Promise<NextResponse<SignalResponse | { error: stri
         { status: 503 },
       );
     }
+
+    // Compute percentile metrics against historical distribution
+    const percentiles = computePercentileMetrics(
+      cotReport.largeSpeculators.net,
+      cotReport.commercials.net,
+      cotHistory,
+    );
 
     // Derive price trend from gold price data.
     // The free gold-api.com endpoint only returns the current spot price,
@@ -55,9 +67,17 @@ export async function GET(): Promise<NextResponse<SignalResponse | { error: stri
     const priceTrend: PriceTrend = "up";
 
     // Derive OI trend from COT report open interest.
-    // Uses estimated previous value until real historical OI is available.
+    // If historical data is available, use the previous week's OI.
     const oiCurrent = cotReport.openInterest;
-    const oiPrevious = Math.round(oiCurrent * PREVIOUS_OI_ESTIMATE_RATIO);
+    let oiPrevious: number;
+
+    if (cotHistory.length >= 2) {
+      // Use second-to-last historical point as previous OI
+      oiPrevious = cotHistory[cotHistory.length - 2].openInterest;
+    } else {
+      oiPrevious = Math.round(oiCurrent * PREVIOUS_OI_ESTIMATE_RATIO);
+    }
+
     const oiTrend: OpenInterestTrend = {
       current: oiCurrent,
       previous: oiPrevious,
@@ -68,6 +88,7 @@ export async function GET(): Promise<NextResponse<SignalResponse | { error: stri
       priceTrend,
       oiTrend,
       cotData: cotReport,
+      percentiles,
     });
 
     const response: SignalResponse = {
@@ -77,6 +98,7 @@ export async function GET(): Promise<NextResponse<SignalResponse | { error: stri
         oiTrend,
         managedMoneyNet: cotReport.largeSpeculators.net,
         commercialNet: cotReport.commercials.net,
+        percentiles,
       },
       timestamp: goldPrice?.timestamp ?? new Date().toISOString(),
     };

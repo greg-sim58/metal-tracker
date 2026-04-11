@@ -4,6 +4,7 @@ import SentimentPanel from "@/components/SentimentPanel";
 import SignalIndicator from "@/components/SignalIndicator";
 import { fetchGoldPrice } from "@/lib/gold";
 import { fetchCotReport } from "@/lib/cot";
+import { fetchCotHistory, computePercentileMetrics } from "@/lib/cotHistory";
 import { generateSignal } from "@/lib/signals";
 
 import type { OpenInterestTrend, PriceTrend } from "@/lib/signals";
@@ -12,28 +13,49 @@ import type { OpenInterestTrend, PriceTrend } from "@/lib/signals";
 const PREVIOUS_OI_ESTIMATE_RATIO = 0.95;
 
 export default async function DashboardPage() {
-  const [goldPrice, cotReport] = await Promise.all([
+  const [goldPrice, cotReport, cotHistory] = await Promise.all([
     fetchGoldPrice(),
     fetchCotReport(),
+    fetchCotHistory(),
   ]);
 
   // Generate the combined signal when COT data is available
   let signal = null;
   if (cotReport) {
+    // Compute percentile metrics against historical distribution
+    const percentiles = computePercentileMetrics(
+      cotReport.largeSpeculators.net,
+      cotReport.commercials.net,
+      cotHistory,
+    );
+
     // Derive price trend — placeholder until historical price comparison
     // is implemented. Defaults to "up".
     const priceTrend: PriceTrend = "up";
 
-    // Derive OI trend from COT open interest with estimated previous value
+    // Derive OI trend from COT open interest.
+    // Use previous week's historical OI when available.
     const oiCurrent = cotReport.openInterest;
-    const oiPrevious = Math.round(oiCurrent * PREVIOUS_OI_ESTIMATE_RATIO);
+    let oiPrevious: number;
+
+    if (cotHistory.length >= 2) {
+      oiPrevious = cotHistory[cotHistory.length - 2].openInterest;
+    } else {
+      oiPrevious = Math.round(oiCurrent * PREVIOUS_OI_ESTIMATE_RATIO);
+    }
+
     const oiTrend: OpenInterestTrend = {
       current: oiCurrent,
       previous: oiPrevious,
       trend: oiCurrent > oiPrevious ? "up" : "down",
     };
 
-    signal = generateSignal({ priceTrend, oiTrend, cotData: cotReport });
+    signal = generateSignal({
+      priceTrend,
+      oiTrend,
+      cotData: cotReport,
+      percentiles,
+    });
   }
 
   return (

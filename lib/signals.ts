@@ -1,14 +1,19 @@
-// Trading signal engine — contrarian model
+// Trading signal engine — contrarian model with dynamic percentile thresholds
 //
 // Core principle: when managed money (large speculators) are extremely
 // positioned in one direction, the trade is crowded and likely to reverse.
 // Commercials (producers/merchants) are "smart money" — their positioning
 // confirms or contradicts the speculator signal.
 //
+// Positioning extremes are defined dynamically using percentile rank
+// against 1–3 years of historical COT data, replacing static contract
+// count thresholds.
+//
 // Signal strength is further modulated by open interest trend (confirms
 // or diverges from price) and price direction.
 
 import type { CotReport } from "@/lib/cot";
+import type { PercentileMetrics } from "@/lib/cotHistory";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -20,6 +25,7 @@ export interface Signal {
   signal: SignalDirection;
   confidence: number; // 0–100
   reasoning: string[];
+  metrics: PercentileMetrics | null;
 }
 
 export interface OpenInterestTrend {
@@ -31,20 +37,19 @@ export interface OpenInterestTrend {
 export type PriceTrend = "up" | "down";
 
 // ---------------------------------------------------------------------------
-// Configurable thresholds
+// Percentile thresholds
 // ---------------------------------------------------------------------------
 
 /**
- * Managed money net position thresholds (contract count).
+ * Percentile thresholds for positioning extremes.
  *
- * EXTREME_LONG: crowded long — contrarian bearish.
- * EXTREME_SHORT: crowded short — contrarian bullish.
- * HIGH_LONG / LOW_LONG: softer thresholds for moderate signals.
+ * EXTREME: 90th / 10th percentile — highly crowded, strong contrarian signal.
+ * HIGH: 75th / 25th percentile — elevated positioning, moderate signal.
  */
-const EXTREME_LONG = 80_000;
-const HIGH_LONG = 50_000;
-const EXTREME_SHORT = -60_000;
-const LOW_SHORT = -20_000;
+const PERCENTILE_EXTREME_HIGH = 90;
+const PERCENTILE_HIGH = 75;
+const PERCENTILE_EXTREME_LOW = 10;
+const PERCENTILE_LOW = 25;
 
 /**
  * Open interest absolute levels for context.
@@ -53,7 +58,7 @@ const OI_HIGH = 300_000;
 const OI_LOW = 200_000;
 
 // ---------------------------------------------------------------------------
-// COT positioning analysis (contrarian)
+// COT positioning analysis (contrarian, percentile-based)
 // ---------------------------------------------------------------------------
 
 interface CotAssessment {
@@ -63,82 +68,150 @@ interface CotAssessment {
 }
 
 /**
- * Evaluate COT positioning using contrarian logic.
- *
- * - Managed money extreme net long + commercials net short → SELL / CAUTION
- * - Managed money extreme net short + commercials improving → BUY
- * - Everything else → NEUTRAL
+ * Format a percentile value for display in reasoning strings.
  */
-function assessCotPositioning(cot: CotReport): CotAssessment {
+function formatPercentile(percentile: number): string {
+  return `${percentile}${ordinalSuffix(percentile)} percentile`;
+}
+
+/**
+ * Return the ordinal suffix for a number (st, nd, rd, th).
+ */
+function ordinalSuffix(n: number): string {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 13) return "th";
+  const mod10 = n % 10;
+  if (mod10 === 1) return "st";
+  if (mod10 === 2) return "nd";
+  if (mod10 === 3) return "rd";
+  return "th";
+}
+
+/**
+ * Evaluate COT positioning using contrarian logic with percentile thresholds.
+ *
+ * When percentile metrics are available:
+ * - Managed money >= 90th percentile + commercials net short → CAUTION (crowded long)
+ * - Managed money >= 75th percentile + commercials net short → CAUTION (elevated)
+ * - Managed money <= 10th percentile → BUY (contrarian bullish)
+ * - Managed money <= 25th percentile + commercials net long → BUY (moderate)
+ *
+ * Falls back to raw contract counts with conservative thresholds when
+ * historical data is unavailable.
+ */
+function assessCotPositioning(
+  cot: CotReport,
+  percentiles: PercentileMetrics | null,
+): CotAssessment {
   const managedNet = cot.largeSpeculators.net;
   const commercialNet = cot.commercials.net;
   const reasons: string[] = [];
 
-  // ------ SELL / CAUTION zone ------
-  if (managedNet > EXTREME_LONG && commercialNet < 0) {
+  // If percentile data is available, use dynamic thresholds
+  if (percentiles) {
+    return assessWithPercentiles(
+      managedNet,
+      commercialNet,
+      percentiles,
+      reasons,
+    );
+  }
+
+  // Fallback: no historical data — use conservative NEUTRAL
+  reasons.push(
+    `Managed money net position: ${managedNet.toLocaleString("en-US")} contracts`,
+  );
+  reasons.push(
+    `Commercials net position: ${commercialNet.toLocaleString("en-US")}`,
+  );
+  reasons.push(
+    "Historical data unavailable — percentile analysis not possible, defaulting to neutral",
+  );
+
+  return { direction: "NEUTRAL", confidence: 20, reasons };
+}
+
+/**
+ * Assess COT positioning using percentile-based thresholds.
+ */
+function assessWithPercentiles(
+  managedNet: number,
+  commercialNet: number,
+  percentiles: PercentileMetrics,
+  reasons: string[],
+): CotAssessment {
+  const mmPct = percentiles.managedMoneyPercentile;
+  const cmPct = percentiles.commercialsPercentile;
+
+  // ------ SELL / CAUTION zone (managed money extremely long) ------
+  if (mmPct >= PERCENTILE_EXTREME_HIGH && commercialNet < 0) {
     reasons.push(
-      `Managed money extremely net long (${managedNet.toLocaleString("en-US")} contracts) — crowded trade`,
+      `Managed money net long at ${formatPercentile(mmPct)} ` +
+      `(${managedNet.toLocaleString("en-US")} contracts) — crowded trade`,
     );
     reasons.push(
-      `Commercials net short (${commercialNet.toLocaleString("en-US")}) — smart money selling`,
+      `Commercials net short (${commercialNet.toLocaleString("en-US")}) at ${formatPercentile(cmPct)} — smart money selling`,
     );
 
-    const overExtension = Math.min((managedNet - EXTREME_LONG) / EXTREME_LONG, 1);
+    // Scale confidence: 90th pct = 65, 100th = 85
+    const overExtension = Math.min((mmPct - PERCENTILE_EXTREME_HIGH) / 10, 1);
     const confidence = Math.round(65 + overExtension * 20);
 
     return { direction: "CAUTION", confidence, reasons };
   }
 
-  if (managedNet > HIGH_LONG && commercialNet < 0) {
+  if (mmPct >= PERCENTILE_HIGH && commercialNet < 0) {
     reasons.push(
-      `Managed money heavily net long (${managedNet.toLocaleString("en-US")} contracts) — approaching crowded levels`,
+      `Managed money net long at ${formatPercentile(mmPct)} ` +
+      `(${managedNet.toLocaleString("en-US")} contracts) — approaching crowded levels`,
     );
     reasons.push(
-      `Commercials net short (${commercialNet.toLocaleString("en-US")}) — producers hedging`,
+      `Commercials net short (${commercialNet.toLocaleString("en-US")}) at ${formatPercentile(cmPct)} — producers hedging`,
     );
 
     return { direction: "CAUTION", confidence: 55, reasons };
   }
 
-  // ------ BUY zone ------
-  if (managedNet < EXTREME_SHORT) {
+  // ------ BUY zone (managed money extremely short) ------
+  if (mmPct <= PERCENTILE_EXTREME_LOW) {
     reasons.push(
-      `Managed money extremely net short (${managedNet.toLocaleString("en-US")} contracts) — contrarian bullish`,
+      `Managed money net position at ${formatPercentile(mmPct)} ` +
+      `(${managedNet.toLocaleString("en-US")} contracts) — contrarian bullish`,
     );
 
     if (commercialNet > 0) {
       reasons.push(
-        `Commercials net long (${commercialNet.toLocaleString("en-US")}) — smart money buying`,
+        `Commercials net long (${commercialNet.toLocaleString("en-US")}) at ${formatPercentile(cmPct)} — smart money buying`,
       );
-      const overExtension = Math.min(
-        (Math.abs(managedNet) - Math.abs(EXTREME_SHORT)) / Math.abs(EXTREME_SHORT),
-        1,
-      );
+      // Scale confidence: 10th pct = 70, 0th = 90
+      const overExtension = Math.min((PERCENTILE_EXTREME_LOW - mmPct) / 10, 1);
       return { direction: "BUY", confidence: Math.round(70 + overExtension * 20), reasons };
     }
 
     reasons.push(
-      `Commercials still net short (${commercialNet.toLocaleString("en-US")}) — not fully confirmed`,
+      `Commercials still net short (${commercialNet.toLocaleString("en-US")}) at ${formatPercentile(cmPct)} — not fully confirmed`,
     );
     return { direction: "BUY", confidence: 55, reasons };
   }
 
-  if (managedNet < LOW_SHORT && commercialNet > 0) {
+  if (mmPct <= PERCENTILE_LOW && commercialNet > 0) {
     reasons.push(
-      `Managed money net short (${managedNet.toLocaleString("en-US")} contracts) — bearish crowd`,
+      `Managed money net position at ${formatPercentile(mmPct)} ` +
+      `(${managedNet.toLocaleString("en-US")} contracts) — bearish crowd`,
     );
     reasons.push(
-      `Commercials net long (${commercialNet.toLocaleString("en-US")}) — smart money accumulating`,
+      `Commercials net long (${commercialNet.toLocaleString("en-US")}) at ${formatPercentile(cmPct)} — smart money accumulating`,
     );
     return { direction: "BUY", confidence: 50, reasons };
   }
 
   // ------ NEUTRAL zone ------
   reasons.push(
-    `Managed money positioning moderate (${managedNet.toLocaleString("en-US")} contracts) — no extreme`,
+    `Managed money net position at ${formatPercentile(mmPct)} ` +
+    `(${managedNet.toLocaleString("en-US")} contracts) — no extreme`,
   );
   reasons.push(
-    `Commercials net position: ${commercialNet.toLocaleString("en-US")}`,
+    `Commercials at ${formatPercentile(cmPct)} — net position: ${commercialNet.toLocaleString("en-US")}`,
   );
   return { direction: "NEUTRAL", confidence: 30, reasons };
 }
@@ -220,21 +293,22 @@ export interface SignalInput {
   priceTrend: PriceTrend;
   oiTrend: OpenInterestTrend;
   cotData: CotReport;
+  percentiles: PercentileMetrics | null;
 }
 
 /**
  * Produce a single consolidated trading signal by combining:
- *   1. COT positioning (contrarian model)
+ *   1. COT positioning (contrarian model with percentile thresholds)
  *   2. Open interest trend confirmation
  *   3. Price direction context
  *
  * Confidence is clamped to 0–100.
  */
 export function generateSignal(input: SignalInput): Signal {
-  const { priceTrend, oiTrend, cotData } = input;
+  const { priceTrend, oiTrend, cotData, percentiles } = input;
 
-  // Step 1 — COT positioning (primary signal)
-  const cot = assessCotPositioning(cotData);
+  // Step 1 — COT positioning (primary signal, percentile-based)
+  const cot = assessCotPositioning(cotData, percentiles);
 
   // Step 2 — OI trend confirmation / divergence
   const oi = assessOiTrend(priceTrend, oiTrend);
@@ -278,5 +352,6 @@ export function generateSignal(input: SignalInput): Signal {
     signal: cot.direction,
     confidence,
     reasoning,
+    metrics: percentiles,
   };
 }

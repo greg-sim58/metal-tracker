@@ -8,7 +8,7 @@ const CFTC_DISAGG_URL = "https://www.cftc.gov/dea/newcot/f_disagg.txt";
  * Market identification: the quoted market name field must contain this
  * substring to match gold futures on COMEX.
  */
-const GOLD_MARKET_PATTERN = "GOLD - COMMODITY EXCHANGE";
+export const GOLD_MARKET_PATTERN = "GOLD - COMMODITY EXCHANGE";
 
 /**
  * 0-based column indices for the disaggregated futures-only report.
@@ -38,7 +38,7 @@ const GOLD_MARKET_PATTERN = "GOLD - COMMODITY EXCHANGE";
  *  21  NonRept_Positions_Long_All
  *  22  NonRept_Positions_Short_All
  */
-const COL = {
+export const COL = {
   MARKET_NAME: 0,
   REPORT_DATE: 2,
   OPEN_INTEREST: 7,
@@ -51,7 +51,7 @@ const COL = {
 } as const;
 
 /** Minimum number of fields required for a valid disaggregated row. */
-const MIN_FIELDS = 23;
+export const MIN_FIELDS = 23;
 
 export interface CotPositionGroup {
   long: number;
@@ -84,7 +84,7 @@ export function getNetPosition(long: number, short: number): number {
  *
  * Returns an array of trimmed field values.
  */
-function parseCsvRow(line: string): string[] {
+export function parseCsvRow(line: string): string[] {
   const fields: string[] = [];
   let current = "";
   let inQuotes = false;
@@ -137,7 +137,7 @@ function parseCsvRow(line: string): string[] {
  *
  * Returns `null` if the value is missing or unparseable.
  */
-function parseNumericField(value: string | undefined): number | null {
+export function parseNumericField(value: string | undefined): number | null {
   if (value === undefined || value === "" || value === ".") {
     return null;
   }
@@ -159,7 +159,7 @@ function parseNumericField(value: string | undefined): number | null {
  * Parse a numeric field, returning 0 for missing/suppressed data.
  * Use this when a fallback of 0 is acceptable (position fields).
  */
-function parseNumericFieldOrZero(value: string | undefined): number {
+export function parseNumericFieldOrZero(value: string | undefined): number {
   return parseNumericField(value) ?? 0;
 }
 
