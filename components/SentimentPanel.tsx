@@ -42,7 +42,7 @@ function PositionRow({ label, long, short, net }: {
 export default function SentimentPanel({ data }: SentimentPanelProps) {
   if (!data) {
     return (
-      <div className="rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="rounded-2xl shadow border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
           Market Sentiment
         </h2>
@@ -64,7 +64,7 @@ export default function SentimentPanel({ data }: SentimentPanelProps) {
         : "text-zinc-600 dark:text-zinc-400";
 
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="rounded-2xl shadow border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex items-baseline justify-between">
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
           Market Sentiment
