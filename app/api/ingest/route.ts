@@ -127,12 +127,25 @@ async function ingestCotHistory(
     return { upserted: 0, error: "Failed to fetch COT history from upstream" };
   }
 
-  const rows = history.map((point) => ({
-    report_date: point.date,
-    managed_money_net: point.managedMoneyNet,
-    commercials_net: point.commercialsNet,
-    open_interest: point.openInterest,
-  }));
+  // Deduplicate by report_date — Socrata can return multiple rows for the
+  // same date.  Keep the last occurrence (most recent data wins).
+  interface HistoryRow {
+    report_date: string;
+    managed_money_net: number;
+    commercials_net: number;
+    open_interest: number;
+  }
+
+  const deduped = new Map<string, HistoryRow>();
+  for (const point of history) {
+    deduped.set(point.date, {
+      report_date: point.date,
+      managed_money_net: point.managedMoneyNet,
+      commercials_net: point.commercialsNet,
+      open_interest: point.openInterest,
+    });
+  }
+  const rows = Array.from(deduped.values());
 
   // Upsert in batches of 500 to avoid payload limits
   const BATCH_SIZE = 500;
