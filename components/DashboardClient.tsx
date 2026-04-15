@@ -336,7 +336,7 @@ export default function DashboardClient() {
           <PricePanel
             price={sources.goldPrice?.price ?? null}
             currency={sources.goldPrice?.currency ?? "USD"}
-            lastUpdated={sources.goldPrice?.timestamp ?? null}
+            lastUpdated={sources.goldPrice?.insertedAt ?? null}
           />
           <SentimentPanel data={sources.cotReport ?? null} />
         </div>

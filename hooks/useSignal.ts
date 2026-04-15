@@ -6,7 +6,7 @@
 
 import { useMemo } from "react";
 
-import { useGoldPrice } from "@/hooks/useGoldPrice";
+import { useGoldPrice, type GoldPriceData } from "@/hooks/useGoldPrice";
 import { useCotReport } from "@/hooks/useCotReport";
 import { useCotHistory } from "@/hooks/useCotHistory";
 import {
@@ -19,7 +19,6 @@ import { classifyExecution } from "@/lib/execution";
 
 import type { Signal, OpenInterestTrend, PriceTrend } from "@/lib/signals";
 import type { ExecutionResult } from "@/lib/execution";
-import type { GoldPrice } from "@/lib/gold";
 import type { CotReport } from "@/lib/cot";
 import type { CotHistoryPoint } from "@/lib/cotHistory";
 
@@ -41,7 +40,7 @@ export interface UseSignalResult {
   isReady: boolean;
   /** Raw source data for components that need it directly */
   sources: {
-    goldPrice: GoldPrice | null | undefined;
+    goldPrice: GoldPriceData | null | undefined;
     cotReport: CotReport | null | undefined;
     cotHistory: CotHistoryPoint[] | undefined;
   };

@@ -1,13 +1,20 @@
 // Hook: gold price data from Supabase
 //
 // Fetches the latest gold price from the gold_prices table.
-// Falls back to polling every 60 seconds when Realtime is not connected.
+// Falls back to polling every 15 minutes when Realtime is not connected.
 
 import { useQuery } from "@tanstack/react-query";
 
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
-import type { GoldPrice } from "@/lib/gold";
+export interface GoldPriceData {
+  price: number;
+  currency: string;
+  /** When the price was fetched from the external source (same as timestamp for backward compat). */
+  timestamp: string;
+  /** When the data was inserted into Supabase. */
+  insertedAt: string;
+}
 
 /** React Query cache key for gold price data. */
 export const GOLD_PRICE_KEY = ["gold-price"] as const;
@@ -21,7 +28,7 @@ const POLL_INTERVAL_MS = 15 * 60 * 1000;
  * Returns the data mapped to the existing GoldPrice interface
  * so downstream components don't need to change.
  */
-async function fetchGoldPriceFromSupabase(): Promise<GoldPrice | null> {
+async function fetchGoldPriceFromSupabase(): Promise<GoldPriceData | null> {
   const supabase = getSupabaseBrowserClient();
 
   const { data, error } = await supabase
@@ -44,6 +51,7 @@ async function fetchGoldPriceFromSupabase(): Promise<GoldPrice | null> {
     price: Number(data.price),
     currency: data.currency,
     timestamp: data.source_timestamp,
+    insertedAt: data.created_at,
   };
 }
 

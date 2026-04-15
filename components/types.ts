@@ -63,6 +63,7 @@ export interface SignalLifecycle {
 export interface PricePanelProps {
   price: number | null;
   currency: string;
+  /** When the data was inserted into Supabase (more accurate for "last updated"). */
   lastUpdated: string | null;
 }
 
