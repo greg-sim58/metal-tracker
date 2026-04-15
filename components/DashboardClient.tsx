@@ -15,6 +15,10 @@ import LifecyclePanel from "@/components/LifecyclePanel";
 import AnalysisPanel from "@/components/AnalysisPanel";
 import { useSignal } from "@/hooks/useSignal";
 import { useSupabaseRealtime } from "@/hooks/useSupabaseRealtime";
+import { useQueryClient } from "@tanstack/react-query";
+import { GOLD_PRICE_KEY } from "@/hooks/useGoldPrice";
+import { COT_REPORT_KEY } from "@/hooks/useCotReport";
+import { COT_HISTORY_KEY } from "@/hooks/useCotHistory";
 
 import type {
   TradeStatus,
@@ -217,6 +221,14 @@ function DashboardError() {
 export default function DashboardClient() {
   const { data, isLoading, isError, sources } = useSignal();
   const { status: realtimeStatus } = useSupabaseRealtime();
+  const queryClient = useQueryClient();
+
+  const handleRefresh = () => {
+    console.log("[Manual refresh] Invalidating all caches");
+    queryClient.invalidateQueries({ queryKey: GOLD_PRICE_KEY });
+    queryClient.invalidateQueries({ queryKey: COT_REPORT_KEY });
+    queryClient.invalidateQueries({ queryKey: COT_HISTORY_KEY });
+  };
 
   if (isLoading) return <DashboardSkeleton />;
   if (isError) return <DashboardError />;
@@ -280,7 +292,16 @@ export default function DashboardClient() {
               Decision engine &mdash; COMEX gold futures
             </p>
           </div>
-          <RealtimeIndicator status={realtimeStatus} />
+          <div className="flex items-center gap-4">
+            <RealtimeIndicator status={realtimeStatus} />
+            <button
+              type="button"
+              onClick={handleRefresh}
+              className="rounded-md bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+            >
+              Refresh
+            </button>
+          </div>
         </div>
       </header>
 
