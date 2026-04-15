@@ -15,10 +15,10 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            // Keep data fresh for 2 minutes before marking stale
-            staleTime: 2 * 60 * 1000,
-            // Cache unused data for 10 minutes before garbage collection
-            gcTime: 10 * 60 * 1000,
+            // Keep data fresh for 15 minutes (matches polling interval)
+            staleTime: 15 * 60 * 1000,
+            // Cache unused data for 30 minutes before garbage collection
+            gcTime: 30 * 60 * 1000,
             // Retry failed requests twice with exponential backoff
             retry: 2,
             // Don't refetch on window focus for trading data

@@ -48,14 +48,14 @@ async function fetchCotHistoryFromSupabase(): Promise<CotHistoryPoint[]> {
  * React Query hook for historical COT data.
  *
  * - Returns an empty array when the table is empty.
- * - Polls every 10 minutes as fallback.
- * - Data is marked stale after 5 minutes (longer than price data).
+ * - Polls every 15 minutes as fallback.
+ * - Data is marked stale after 10 minutes.
  */
 export function useCotHistory() {
   return useQuery({
     queryKey: COT_HISTORY_KEY,
     queryFn: fetchCotHistoryFromSupabase,
     refetchInterval: POLL_INTERVAL_MS,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 10 * 60 * 1000,
   });
 }

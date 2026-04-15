@@ -50,7 +50,7 @@ async function fetchGoldPriceFromSupabase(): Promise<GoldPrice | null> {
 /**
  * React Query hook for the latest gold price.
  *
- * - Polls every 60s as a fallback (Realtime invalidation is primary).
+ * - Polls every 15 min as fallback (Realtime invalidation is primary).
  * - Returns `null` data when the table is empty (pre-ingestion).
  */
 export function useGoldPrice() {

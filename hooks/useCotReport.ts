@@ -63,7 +63,7 @@ async function fetchCotReportFromSupabase(): Promise<CotReport | null> {
 /**
  * React Query hook for the latest COT report.
  *
- * - Polls every 5 minutes as fallback (COT data is weekly).
+ * - Polls every 15 minutes as fallback (COT data is weekly).
  * - Returns `null` when the table is empty.
  */
 export function useCotReport() {
