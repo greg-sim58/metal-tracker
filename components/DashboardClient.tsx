@@ -8,6 +8,8 @@
 
 import { useState } from "react";
 
+import { refreshDashboardData } from "@/app/actions/refresh-data";
+
 import PricePanel from "@/components/PricePanel";
 import SentimentPanel from "@/components/SentimentPanel";
 import TradingSignalCard from "@/components/TradingSignalCard";
@@ -231,22 +233,15 @@ export default function DashboardClient() {
     console.log("[Manual refresh] Fetching fresh data from external APIs...");
 
     try {
-      // Step 1: Call ingestion API to fetch fresh data from external sources
-      const response = await fetch("/api/ingest", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
+      // Call server action to fetch fresh data from external sources + write to Supabase
+      const result = await refreshDashboardData();
+      console.log("[Manual refresh] Result:", result);
 
-      if (!response.ok) {
-        throw new Error(`Ingest failed: ${response.status}`);
+      if (!result.success) {
+        throw new Error(result.error ?? "Unknown error");
       }
 
-      const result = await response.json();
-      console.log("[Manual refresh] Ingest result:", result);
-
-      // Step 2: Invalidate React Query cache to trigger re-fetch from Supabase
+      // Invalidate React Query cache to trigger re-fetch from Supabase
       await queryClient.invalidateQueries({ queryKey: GOLD_PRICE_KEY });
       await queryClient.invalidateQueries({ queryKey: COT_REPORT_KEY });
       await queryClient.invalidateQueries({ queryKey: COT_HISTORY_KEY });
