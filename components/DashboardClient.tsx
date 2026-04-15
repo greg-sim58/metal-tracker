@@ -6,6 +6,8 @@
 // Supabase Realtime subscriptions. All data flows through the hook
 // layer; the derive* functions remain pure.
 
+import { useState } from "react";
+
 import PricePanel from "@/components/PricePanel";
 import SentimentPanel from "@/components/SentimentPanel";
 import TradingSignalCard from "@/components/TradingSignalCard";
@@ -222,12 +224,39 @@ export default function DashboardClient() {
   const { data, isLoading, isError, sources } = useSignal();
   const { status: realtimeStatus } = useSupabaseRealtime();
   const queryClient = useQueryClient();
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const handleRefresh = () => {
-    console.log("[Manual refresh] Invalidating all caches");
-    queryClient.invalidateQueries({ queryKey: GOLD_PRICE_KEY });
-    queryClient.invalidateQueries({ queryKey: COT_REPORT_KEY });
-    queryClient.invalidateQueries({ queryKey: COT_HISTORY_KEY });
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    console.log("[Manual refresh] Fetching fresh data from external APIs...");
+
+    try {
+      // Step 1: Call ingestion API to fetch fresh data from external sources
+      const response = await fetch("/api/ingest", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Ingest failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log("[Manual refresh] Ingest result:", result);
+
+      // Step 2: Invalidate React Query cache to trigger re-fetch from Supabase
+      await queryClient.invalidateQueries({ queryKey: GOLD_PRICE_KEY });
+      await queryClient.invalidateQueries({ queryKey: COT_REPORT_KEY });
+      await queryClient.invalidateQueries({ queryKey: COT_HISTORY_KEY });
+
+      console.log("[Manual refresh] Cache invalidated, UI will update");
+    } catch (error) {
+      console.error("[Manual refresh] Error:", error);
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   if (isLoading) return <DashboardSkeleton />;
@@ -297,9 +326,10 @@ export default function DashboardClient() {
             <button
               type="button"
               onClick={handleRefresh}
-              className="rounded-md bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+              disabled={isRefreshing}
+              className="rounded-md bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-200 disabled:opacity-50 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
             >
-              Refresh
+              {isRefreshing ? "Updating..." : "Update Data"}
             </button>
           </div>
         </div>
