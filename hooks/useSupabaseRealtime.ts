@@ -59,6 +59,7 @@ export function useSupabaseRealtime(): UseSupabaseRealtimeResult {
         "postgres_changes",
         { event: "*", schema: "public", table: "gold_prices" },
         () => {
+          console.log("[Realtime] gold_prices changed, invalidating cache");
           queryClient.invalidateQueries({ queryKey: [...GOLD_PRICE_KEY] });
         },
       )
@@ -66,6 +67,7 @@ export function useSupabaseRealtime(): UseSupabaseRealtimeResult {
         "postgres_changes",
         { event: "*", schema: "public", table: "cot_reports" },
         () => {
+          console.log("[Realtime] cot_reports changed, invalidating cache");
           queryClient.invalidateQueries({ queryKey: [...COT_REPORT_KEY] });
         },
       )
@@ -73,10 +75,12 @@ export function useSupabaseRealtime(): UseSupabaseRealtimeResult {
         "postgres_changes",
         { event: "*", schema: "public", table: "cot_history" },
         () => {
+          console.log("[Realtime] cot_history changed, invalidating cache");
           queryClient.invalidateQueries({ queryKey: [...COT_HISTORY_KEY] });
         },
-      )
+)
       .subscribe((subscriptionStatus) => {
+        console.log("[Realtime] Subscription status:", subscriptionStatus);
         if (subscriptionStatus === "SUBSCRIBED") {
           setStatus("connected");
         } else if (
