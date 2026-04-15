@@ -12,8 +12,8 @@ import type { GoldPrice } from "@/lib/gold";
 /** React Query cache key for gold price data. */
 export const GOLD_PRICE_KEY = ["gold-price"] as const;
 
-/** Polling interval when Realtime is not handling updates (60s). */
-const POLL_INTERVAL_MS = 60 * 1000;
+/** Polling interval when Realtime is not handling updates (15 minutes). */
+const POLL_INTERVAL_MS = 15 * 60 * 1000;
 
 /**
  * Fetch the most recent gold price row from Supabase.

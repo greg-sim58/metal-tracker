@@ -12,8 +12,8 @@ import type { CotHistoryPoint } from "@/lib/cotHistory";
 /** React Query cache key for COT history. */
 export const COT_HISTORY_KEY = ["cot-history"] as const;
 
-/** Polling interval fallback (10 minutes — history rarely changes). */
-const POLL_INTERVAL_MS = 10 * 60 * 1000;
+/** Polling interval fallback (15 minutes — history rarely changes). */
+const POLL_INTERVAL_MS = 15 * 60 * 1000;
 
 /**
  * Fetch all COT history rows from Supabase, ordered by date ascending.

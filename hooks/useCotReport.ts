@@ -13,8 +13,8 @@ import type { CotReport } from "@/lib/cot";
 /** React Query cache key for COT report data. */
 export const COT_REPORT_KEY = ["cot-report"] as const;
 
-/** Polling interval fallback (5 minutes — COT updates weekly). */
-const POLL_INTERVAL_MS = 5 * 60 * 1000;
+/** Polling interval fallback (15 minutes — COT updates weekly but stays in sync). */
+const POLL_INTERVAL_MS = 15 * 60 * 1000;
 
 /**
  * Fetch the most recent COT report row from Supabase and map it
