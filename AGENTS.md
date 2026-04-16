@@ -13,8 +13,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | Framework    | Next.js 16.2.3 (App Router)      |
 | Runtime      | React 19, TypeScript 5 (strict)  |
 | Styling      | Tailwind CSS v4 (`@tailwindcss/postcss`) |
-| Linting      | ESLint 9 (flat config, core-web-vitals + typescript) |
-| Fonts        | Geist / Geist Mono via `next/font/google` |
+| Database    | Supabase (Postgres + Realtime)     |
+| State       | TanStack React Query v5          |
+| Linting     | ESLint 9 (flat config)           |
 
 ## Build / Lint / Test Commands
 
@@ -26,183 +27,134 @@ npm run dev              # Start dev server (Turbopack)
 npm run build            # Full production build (TypeScript check + compile)
 
 # Lint
-npm run lint             # ESLint across the project (eslint flat config)
-npx eslint app/          # Lint a specific directory
-npx eslint app/page.tsx  # Lint a single file
+npm run lint             # ESLint across the project
 
-# Type-check only (no emit)
+# Type-check only
 npx tsc --noEmit
-
-# Start production server (after build)
-npm run start
 ```
-
-### Testing
-
-No test framework is currently configured. When adding tests:
-- Prefer Vitest for unit/integration tests
-- Prefer Playwright for E2E tests
-- Place test files adjacent to source: `foo.test.ts` next to `foo.ts`
 
 ## Project Structure
 
 ```
-/app                     # Next.js App Router pages and API routes
+/app
+  /actions/refresh-data.ts    # Server action for data ingestion (bypasses HTTP auth)
   /api
-    /gold-price/route.ts   # GET — gold price data
-    /open-interest/route.ts# GET — open interest data
-    /cot/route.ts          # GET — Commitment of Traders data
-    /signals/route.ts      # GET — trading signals
-  /dashboard/page.tsx      # Dashboard page
-  layout.tsx               # Root layout (Geist fonts, globals.css)
-  page.tsx                 # Landing page
-  globals.css              # Tailwind v4 import + CSS custom properties
-/lib                     # Data fetching & business logic (server-side)
-  gold.ts                  # Gold price fetching
-  cot.ts                   # COT report fetching
-  signals.ts               # Signal generation
-/components              # React components (client-side)
-  PriceChart.tsx
-  SentimentPanel.tsx
-  SignalIndicator.tsx
-/public                  # Static assets
+    /ingest/route.ts         # Ingestion endpoint (for cron/external calls)
+  /dashboard/page.tsx       # Dashboard page (renders DashboardClient)
+  /providers.tsx          # React Query provider
+  layout.tsx               # Root layout
+  globals.css              # Tailwind v4 + CSS variables
+/components              # React components
+  DashboardClient.tsx       # Main client component (uses hooks)
+  PricePanel.tsx          # Gold price display
+  SentimentPanel.tsx       # COT sentiment display
+  TradingSignalCard.tsx    # Signal + readiness
+  MTFPanel.tsx            # Multi-timeframe
+  ReadinessBreakdown.tsx   # Readiness scores
+  LifecyclePanel.tsx      # Signal lifecycle
+  AnalysisPanel.tsx       # Reasoning
+/hooks                   # React Query hooks
+  useGoldPrice.ts         # Gold price (polling 15min + Realtime)
+  useCotReport.ts        # COT report (polling 15min + Realtime)
+  useCotHistory.ts      # COT history (polling 15min + Realtime)
+  useSignal.ts         # Derived signal (composes above)
+  useSupabaseRealtime.ts # Postgres change subscriptions
+/lib                    # Business logic
+  supabase/client.ts    # Browser singleton client
+  supabase/server.ts    # Server client
+  supabase/types.ts    # Database types
+  gold.ts              # fetchGoldPrice()
+  cot.ts               # fetchCotReport()
+  cotHistory.ts        # fetchCotHistory(), analysis
+  signals.ts           # generateSignal()
+  execution.ts        # classifyExecution()
+/supabase
+  schema.sql          # Database schema (run in Supabase SQL Editor)
 ```
 
-## Path Aliases
+## Data Flow
 
 ```
-@/* → ./*    (tsconfig paths)
+External APIs → refresh-data.ts (server action) → Supabase
+                                    ↓
+Supabase Realtime → useSupabaseRealtime → invalidateQueries
+                                    ↓
+useGoldPrice/useCotReport/useCotHistory (React Query)
+                                    ↓
+useSignal (derived) → DashboardClient → UI
 ```
 
-Use `@/lib/gold` instead of `../../lib/gold`. Always prefer the `@/` alias for cross-directory imports.
+## Supabase Keys
+
+- `NEXT_PUBLIC_SUPABASE_URL` — Project URL
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` — Anonymous key (client-readable)
+- `SUPABASE_SERVICE_ROLE_KEY` — Service role (server-only, bypasses RLS)
+- `INGEST_API_KEY` — For `/api/ingest` endpoint (Bearer auth)
+
+## Key Patterns
+
+### Server Action (preferred for internal data ops)
+```typescript
+// app/actions/refresh-data.ts
+"use server";
+import { createClient } from "@supabase/supabase-js";
+
+export async function refreshDashboardData() {
+  const supabase = createClient<Database>(url, serviceKey);
+  // fetch external data, write to Supabase
+}
+```
+
+### React Query hook
+```typescript
+// hooks/useGoldPrice.ts
+export const GOLD_PRICE_KEY = ["gold-price"] as const;
+const POLL_INTERVAL_MS = 15 * 60 * 1000;
+
+export function useGoldPrice() {
+  return useQuery({
+    queryKey: GOLD_PRICE_KEY,
+    queryFn: fetchGoldPriceFromSupabase,
+    refetchInterval: POLL_INTERVAL_MS,
+  });
+}
+```
+
+### Realtime subscription
+```typescript
+// hooks/useSupabaseRealtime.ts
+channel = supabase.channel("dashboard-realtime")
+  .on("postgres_changes", { event: "*", schema: "public", table: "gold_prices" }, () => {
+    queryClient.invalidateQueries({ queryKey: GOLD_PRICE_KEY });
+  })
+  .subscribe();
+```
 
 ## Code Style
 
-### TypeScript
+- **Strict mode ON** — never use `as any`, `@ts-ignore`
+- Use `interface` for object shapes, `type` for unions
+- Use `@/` alias for cross-directory imports
+- Client components: `"use client";` as first line
+- One component per file, default export
 
-- **Strict mode is ON** — never use `as any`, `@ts-ignore`, or `@ts-expect-error`
-- Use `interface` for object shapes; use `type` for unions, intersections, and utility types
-- Export interfaces/types alongside the functions that consume them
-- Prefer explicit return types on exported functions
+## Common Tasks
 
-```typescript
-// Good
-export interface GoldPrice {
-  price: number;
-  currency: string;
-  timestamp: string;
-}
+### Adding a new data source
+1. Add table to `supabase/schema.sql`
+2. Add types to `lib/supabase/types.ts`
+3. Create React Query hook in `/hooks`
+4. Add to `useSignal.ts` sources
+5. Use in DashboardClient
 
-export async function fetchGoldPrice(): Promise<GoldPrice | null> { ... }
+### Debugging Realtime
+- Check browser console for `[Realtime] Subscription status: SUBSCRIBED`
+- Tables must be in `supabase_realtime` publication
+- RLS policies must allow read for anon role
+
+### Testing data flow
+```bash
+# Call ingestion manually
+curl -X POST http://localhost:3000/api/ingest \
+  -H "Authorization: Bearer YOUR_INGEST_API_KEY"
 ```
-
-### Imports
-
-Order imports in this sequence, separated by blank lines:
-
-1. External packages (`next/*`, `react`, third-party)
-2. Internal aliases (`@/lib/*`, `@/components/*`)
-3. Relative imports (`./`, `../`)
-4. Type-only imports (`import type { ... }`)
-
-```typescript
-import { NextResponse } from "next/server";
-import type { Metadata } from "next";
-
-import { fetchGoldPrice } from "@/lib/gold";
-
-import type { GoldPrice } from "@/lib/gold";
-```
-
-### Naming Conventions
-
-| Element           | Convention       | Example                 |
-|------------------ |----------------- |------------------------ |
-| Components        | PascalCase file + default export | `PriceChart.tsx` → `export default function PriceChart()` |
-| Pages             | `page.tsx`       | `app/dashboard/page.tsx` |
-| API routes        | `route.ts`       | `app/api/gold-price/route.ts` |
-| Lib modules       | camelCase file   | `gold.ts`, `signals.ts` |
-| Interfaces        | PascalCase       | `GoldPrice`, `CotReport` |
-| Variables/funcs   | camelCase        | `fetchGoldPrice`, `netPosition` |
-| CSS variables     | kebab-case       | `--color-background`   |
-
-### Components
-
-- Client components: add `"use client";` as the first line
-- Server components: no directive needed (default in App Router)
-- Use default exports for components
-- One component per file
-
-```tsx
-"use client";
-
-export default function PriceChart() {
-  return <div>...</div>;
-}
-```
-
-### API Routes
-
-- Use named exports matching HTTP methods: `GET`, `POST`, `PUT`, `DELETE`
-- Return `NextResponse.json()` for all responses
-- Keep route handlers thin — delegate logic to `/lib` modules
-
-```typescript
-import { NextResponse } from "next/server";
-
-export async function GET() {
-  return NextResponse.json({ data: null });
-}
-```
-
-### Styling
-
-- Tailwind CSS v4 utility classes (no `tailwind.config.js` — uses CSS-first config)
-- CSS custom properties defined in `app/globals.css` under `:root` and `@theme inline`
-- Dark mode: `prefers-color-scheme: dark` media query + `dark:` Tailwind variants
-- Use semantic color variables: `--color-background`, `--color-foreground`
-
-### Error Handling
-
-- Never use empty `catch` blocks
-- API routes: return appropriate HTTP status codes with error messages
-- Lib functions: return `null` or throw typed errors — avoid swallowing exceptions
-
-```typescript
-// API route error handling
-export async function GET() {
-  try {
-    const data = await fetchGoldPrice();
-    if (!data) {
-      return NextResponse.json({ error: "Data unavailable" }, { status: 503 });
-    }
-    return NextResponse.json(data);
-  } catch (error) {
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
-  }
-}
-```
-
-## ESLint Configuration
-
-Uses flat config (`eslint.config.mjs`) with:
-- `eslint-config-next/core-web-vitals` — performance and accessibility rules
-- `eslint-config-next/typescript` — TypeScript-specific rules
-
-No Prettier is configured. Formatting is not enforced via tooling — maintain consistency manually:
-- **Quotes**: double quotes for strings
-- **Semicolons**: yes
-- **Indentation**: 2 spaces
-- **Trailing commas**: ES5-compatible positions
-
-## Key Reminders for Agents
-
-1. **Next.js 16**: Check `node_modules/next/dist/docs/` for API changes before using Next.js features
-2. **React 19**: Server Components are the default — only add `"use client"` when hooks or browser APIs are needed
-3. **No `pages/` directory**: This project uses App Router exclusively (`/app`)
-4. **Tailwind v4**: No `tailwind.config.js` — configuration is CSS-first via `@theme inline` in `globals.css`
-5. **Run `npm run build`** after significant changes to verify TypeScript and compilation
-6. **Run `npm run lint`** before considering work complete
